@@ -26,7 +26,7 @@ us_states<-states(cb=TRUE)%>%
 st_crs(us_states)
 
 #2) WNBA locations
-wnba_locations <- st_read("Women's National Basketball Association (WNBA).kml")%>%
+wnba_locations <- st_read("Women's National Basketball Association (WNBA).kml")%>% #downloaded via Google maps
     mutate(lon = unlist(map(.$geometry,1)),
            lat = unlist(map(.$geometry,2)),
            team_name = tolower(word(Name,-1))) #for merging svg links
