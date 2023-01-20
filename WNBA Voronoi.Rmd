@@ -1,0 +1,141 @@
+---
+title: "WNBA Voronoi"
+author: "Cullen MacDowell"
+date: "2022-10-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+workDir <- "Documents/Career/Projects/WNBA"
+knitr::opts_knit$set(root.dir=workDir)
+
+library(tidyverse)
+library(sf)
+library(tigris)
+library(ggvoronoi)
+library(ggimage)
+
+```
+
+```{r import}
+
+#1) state borders
+us_states<-states(cb=TRUE)%>%
+  filter(!STUSPS %in% c("AK","HI","MP","VI","GU","PR","AS")) #drop non continental states and territories
+
+st_crs(us_states)
+
+#2) WNBA locations
+wnba_locations <- st_read("Women's National Basketball Association (WNBA).kml")%>%
+    mutate(lon = unlist(map(.$geometry,1)),
+           lat = unlist(map(.$geometry,2)),
+           team_name = tolower(word(Name,-1))) #for merging svg links
+
+st_crs(wnba_locations)
+
+wnba_locations_nad83 <- st_transform(wnba_locations,crs=4269)
+
+st_crs(wnba_locations_nad83)
+
+```
+
+
+```{r webscrape images}
+library(rvest)
+
+url <- "https://www.wnba.com/teams/"
+
+image_links<-data.frame(logo =read_html(url)%>%
+                              html_nodes(".teams-page-logo")%>%
+                              html_attr("src"))
+
+#two steps to avoid over querying website
+image_links_cl <- image_links%>%
+  mutate(team_name = str_extract(logo,"(?<=logos/)\\w*")) #grab the first word (\w*) that comes after the string 'logos/'
+
+```
+
+```{r add images to wnba data set}
+library(rsvg)
+
+test <- bind_cols(wnba_locations_nad83,image_links_cl)
+
+#dplyr and sf don't merge well so let's just sort and do a bind_cols
+wnba_locations_images<-bind_cols(wnba_locations_nad83%>%arrange(team_name),
+                                  image_links_cl%>%arrange(team_name)%>%select(-team_name))
+
+as.data.frame(wnba_locations_nad83)
+image_links_cl
+
+#testing
+# ggplot(wnba_locations_images) + 
+#   geom_sf(aes(color = wnba_orange), show.legend = FALSE) +
+#   geom_image(aes(x=lon, y=lat, image=logo))
+```
+
+
+```{r grab continental us outline}
+#outline for voronoi lines
+usa <- ggplot2::map_data('usa')
+
+usa_tigris <- nation()
+
+names(usa) <- c("lon","lat", "group","order","region","subregion")
+
+usa%>%group_by(region)%>%tally()
+
+us_outline <- usa %>% filter(region %in% c("main","manhattan","long island","staten island"))
+
+summary(us_outline)
+#outline supposed to just be a data set, not an sf object
+
+```
+
+
+```{r plot}
+
+wnba_orange <-"#fa4d00"
+
+
+
+ggplot(wnba_locations_images) +
+  theme_void() + #this drops gridlines and makes the background white by default
+  # ggspatial::annotation_map_tile(type = "osm", zoom = 5) +
+  geom_sf(data = us_states, inherit.aes = FALSE, fill='#e6e6e6', color="white", size=.2) +
+  geom_path(data = wnba_locations_images, stat = "voronoi", aes(x=lon, y=lat), outline = us_outline, size = .2, alpha = .80) +
+  geom_sf(data = wnba_locations_images, aes(color = wnba_orange), show.legend = FALSE) +
+  geom_image(data = wnba_locations_images, aes(x=lon, y=lat, image=logo), asp = 1.618, size = .04) +
+  labs(title = "What WNBA Team Are You Closest To?", 
+       caption = "@CullenMacDowell") +
+  theme(plot.title = element_text(family = "serif", 
+                            face = "bold",
+                            size = 18,
+                            vjust = .5,
+                            color = wnba_orange),
+        plot.caption = element_text(color = "gray"),
+        plot.background = element_rect(color = wnba_orange))
+  # labs(title = "What WNBA Team Are You Closest To?")
+
+#tricks for getting the logos sized proportionately: https://twitter.com/thomas_mock/status/1304469114036064256/photo/2
+  
+
+
+```
+
+```{r code graveyard}
+#add basemap
+# library(ggmap)
+# # nc_map <- get_map(location = "North Carolina, NC", zoom = 7)
+# stamenMap <- get_stamenmap(bbox = c(min(us_outline$lon),
+#                                 min(us_outline$lat),
+#                                 max(us_outline$lon),
+#                                 max(us_outline$lat)),
+#           maptype = "terrain", 
+#           # crop = FALSE,
+#           zoom = 5) #6 if we want smaller cities
+# st_crs(stamenMap)
+# 
+# ggmap(stamenMap) #coordinates are off
+
+```
+
